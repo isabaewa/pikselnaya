@@ -1,0 +1,119 @@
+{% load static l10n %}{% localize off %}
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>👾 Пиксельная — обработка изображений</title>
+  <link rel="stylesheet" href="{% static 'styles.css' %}">
+  <style>
+    main{grid-template-columns:300px minmax(0,1fr)}main>div,.panel{min-width:0}
+    .viewer{grid-template-columns:repeat(2,minmax(0,1fr))}.image-wrap img{max-width:100%;max-height:430px;object-fit:contain;display:block}
+    .hist svg{width:100%;height:145px}.card img{width:100%;height:115px;object-fit:contain}.extras img{width:100%;max-height:240px;object-fit:contain}
+    .card{width:100%;height:100%}.card-form{margin:0}.parameter-help{font-size:12px;color:var(--muted);line-height:1.6;background:#382d44;padding:10px;border-radius:8px}
+    .download{text-decoration:none;display:inline-block}.status.notice{padding:12px 16px;background:#382d44;border:1px solid #675078;border-radius:10px}
+    .primary:focus .run-pixel{animation:pixel-run 1.2s linear infinite alternate}.inactive-hint{opacity:.7}
+    @media(max-width:950px){main{grid-template-columns:260px minmax(0,1fr)}.viewer{grid-template-columns:1fr}}
+    @media(max-width:650px){main{display:block}}
+    @media(prefers-reduced-motion:reduce){.primary:focus .run-pixel{animation:none}}
+  </style>
+</head>
+<body>
+<header><div class="brand"><span class="brand-icon" aria-hidden="true">👾</span><div><p class="eyebrow">ТВОЯ МАЛЕНЬКАЯ СТУДИЯ ИЗОБРАЖЕНИЙ</p><h1>Пиксельная</h1></div></div></header>
+<main>
+  <aside>
+    <section class="panel">
+      <h2><span class="step">01</span>Загрузка изображения</h2>
+      <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <label for="upload">Изображение с компьютера</label>
+        <input id="upload" type="file" name="image" accept="image/*" required onchange="this.form.requestSubmit(this.form.querySelector('button[value=upload]'))">
+        <p class="hint">PNG, JPEG, WebP. После выбора файл загружается автоматически. Рабочая копия — до 640 px.</p>
+        <button type="submit" name="action" value="upload" hidden aria-hidden="true"></button>
+      </form>
+      {% if state.filename %}<p class="hint">Загружено: {{ state.filename }} · {{ current_size }}</p>{% endif %}
+      <form method="post" class="row">{% csrf_token %}<button name="action" value="demo">Открыть учебный пример</button></form>
+      <details class="reference-extra">
+        <summary>Дополнительно: эталон</summary>
+        <div class="reference-content">
+          <div class="reference-heading">Чистый снимок для сравнения <span class="info" tabindex="0" aria-label="Что такое эталон">i<span class="tooltip">Эталон — чистая версия того же снимка. Если шум добавлен здесь, исходное изображение используется автоматически.</span></span></div>
+          <form method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            <label for="reference">Эталон для сравнения</label>
+            <input id="reference" type="file" name="reference" accept="image/*" required onchange="this.form.requestSubmit(this.form.querySelector('button[value=reference]'))" {% if not state.original %}disabled{% endif %}>
+            <p class="hint">Та же сцена, размеры и расположение объектов. Уменьшение применяется так же, как к основному снимку.</p>
+            <button type="submit" name="action" value="reference" hidden aria-hidden="true" {% if not state.original %}disabled{% endif %}></button>
+          </form>
+          <p class="hint">{% if state.reference %}Эталон: {{ state.reference_name }}{% else %}Эталон: первоначальное изображение.{% endif %}</p>
+          <form method="post">{% csrf_token %}<button name="action" value="reset_reference" {% if not state.reference %}disabled{% endif %}>Сбросить эталон</button></form>
+        </div>
+      </details>
+    </section>
+
+    <section class="panel">
+      <h2><span class="step">02</span>Выбор операции</h2>
+      <form method="get">
+        <label for="operation">Метод обработки</label>
+        <select id="operation" name="operation" onchange="this.form.requestSubmit()">
+          {% for group in groups %}<optgroup label="{{ group.title }}">{% for method in group.methods %}<option value="{{ method.id }}" {% if method.id == operation_id %}selected{% endif %}>{{ method.name }}</option>{% endfor %}</optgroup>{% endfor %}
+        </select>
+        
+      </form>
+      <p class="hint" id="description">{{ operation.description }}</p>
+      <h2 style="margin-top:22px"><span class="step">03</span>Параметры</h2>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="operation" value="{{ operation_id }}">
+        {% for field in fields %}
+          {% if field.type == 'checkbox' %}
+            <label class="check"><input type="checkbox" name="{{ field.id }}" {% if field.value %}checked{% endif %}>{{ field.label }}</label>
+          {% elif field.inactive %}
+            <input type="hidden" name="{{ field.id }}" value="{{ field.value }}">
+          {% else %}
+            <label for="p_{{ field.id }}">{{ field.label }}</label>
+            {% if field.type == 'select' %}
+              <select id="p_{{ field.id }}" name="{{ field.id }}" onchange="this.form.requestSubmit(this.form.querySelector('button[value=configure]'))">{% for option in field.options %}<option value="{{ option.value }}" {% if option.value == field.value %}selected{% endif %}>{{ option.label }}</option>{% endfor %}</select>
+            {% else %}
+              <input id="p_{{ field.id }}" type="number" name="{{ field.id }}" value="{{ field.value }}" min="{{ field.min }}" max="{{ field.max }}" step="{{ field.step }}" required>
+            {% endif %}
+            {% if field.help %}<p class="parameter-help">{{ field.help }}</p>{% endif %}
+          {% endif %}
+        {% empty %}<p class="hint">Параметры не требуются.</p>{% endfor %}
+        {% if fields %}<button type="submit" name="action" value="configure" formnovalidate hidden aria-hidden="true"></button><p class="hint">Описание и параметры обновляются при выборе варианта. Числовые значения применяются кнопкой «Выполнить обработку».</p>{% endif %}
+        <h2 style="margin-top:22px"><span class="step">04</span>Обработка</h2>
+        <p class="hint">{% if state.current %}Вход: {{ state.input_name }}.{% else %}Сначала загрузите изображение.{% endif %}</p>
+        <button class="primary" name="action" value="process" {% if not state.current %}disabled{% endif %}><span class="run-pixel" aria-hidden="true">👾</span>Выполнить обработку</button>
+      </form>
+      <form method="post" class="row">{% csrf_token %}<button name="action" value="original" {% if not state.original %}disabled{% endif %}>Вернуть исходный вход</button></form>
+    </section>
+    <section class="panel"><details><summary>Как работает приложение</summary><p>Изображение загружается в Django. Python декодирует его через Pillow, обрабатывает массив NumPy и сохраняет результат в PNG. Вычисления в браузере не выполняются.</p><p>Метод и варианты обновляются автоматически. Небольшие обработчики выбора только отправляют формы; все вычисления выполняет Python.</p></details></section>
+  </aside>
+
+  <div>
+    {% if message %}<p id="status" class="status notice {% if error %}error{% endif %}" role="status">{{ message }}</p>{% endif %}
+    <section class="panel">
+      <div class="topline"><h2><span class="step">05</span>Результаты и визуализация</h2><span class="hint">{{ state.results|length }} результатов</span></div>
+      <div class="viewer">
+        <div class="frame"><h3>Изображение до обработки · вход</h3><div class="image-wrap">{% if state.current %}<img id="source" src="{{ media }}{{ state.current }}" alt="Текущий вход обработки">{% else %}<div class="empty">Загрузите изображение<br>или откройте учебный пример</div>{% endif %}</div><p class="hint">{{ current_size }}</p><h3>Гистограмма до обработки</h3><div class="hist">{{ hist_before }}</div></div>
+        <div class="frame"><h3 id="resultTitle">{% if selected %}{{ selected.name }}{% else %}Результат обработки{% endif %}</h3><div class="image-wrap">{% if selected %}<img id="result" src="{{ media }}{{ selected.image }}" alt="Результат обработки">{% else %}<div class="empty">Здесь появится результат</div>{% endif %}</div><p class="hint">{{ result_size }}{% if selected %} · {{ selected.label }}{% endif %}</p><h3>Гистограмма после обработки</h3><div class="hist">{{ hist_after }}</div></div>
+      </div>
+      <p class="legend"><span style="color:#ff8d9f">R</span> · <span style="color:#9dd3b6">G</span> · <span style="color:#97b8ee">B</span> · яркость — уровни 0–255, вертикальная ось — число пикселей</p>
+      {% if selected %}<p class="hint">{{ selected.note }}</p>{% endif %}
+      {% if metrics %}<div class="metrics" id="metrics"><div class="metric"><span>MSE</span><strong>{{ metrics.mse }}</strong></div><div class="metric"><span>PSNR, дБ</span><strong>{{ metrics.psnr }}</strong></div><div class="metric"><span>SSIM</span><strong>{{ metrics.ssim }}</strong></div></div><p class="hint">Сравнение с {% if state.reference %}загруженным эталоном{% else %}первоначально загруженным изображением{% endif %}. Для оценки восстановления эталон должен быть чистым.</p>{% endif %}
+      <details class="metric-guide"><summary>Как читать метрики и когда они появляются</summary><div class="metric-guide-content"><p>Показатели появляются после сглаживания, медианной фильтрации, повышения резкости и частотной фильтрации.</p><p>Сравнение выполняется с отдельным эталоном, если он загружен, иначе — с первоначальным изображением. Назначение результата входом не меняет эталон.</p><p>Для проверки: чистое фото → шум → «Использовать результат как вход» → медианная фильтрация.</p><p>MSE — меньше лучше; PSNR — больше лучше; SSIM — ближе к 1 лучше. Совпадение: 0, ∞, 1. SSIM усредняется по окнам яркости 8×8. Без чистого эталона показатели измеряют изменение, а не восстановление.</p></div></details>
+      <div class="row">
+        {% if selected %}<a class="download" href="{% url 'download' selected.id %}">Скачать PNG</a>{% endif %}
+        <form method="post">{% csrf_token %}<button name="action" value="use_result" {% if not can_use %}disabled{% endif %}>{% if selected.image == state.current and selected %}Результат выбран как вход ✓{% else %}Использовать результат как вход{% endif %}</button></form>
+      </div>
+    </section>
+    {% if selected.extras %}<section class="panel"><h2>Каналы и спектр</h2><div class="extras">{% for extra in selected.extras %}<div><h3>{{ extra.name }}</h3><img src="{{ media }}{{ extra.image }}" alt="{{ extra.name }}"></div>{% endfor %}</div></section>{% endif %}
+    <section class="panel">
+      <div class="topline"><h2>Сравнение результатов</h2><form method="post">{% csrf_token %}<button name="action" value="clear" {% if not state.results %}disabled{% endif %}>Очистить</button></form></div>
+      <p class="hint">До 12 результатов с параметрами и метриками. Нажмите карточку, чтобы открыть пару «до / после».</p>
+      <div class="gallery">{% for entry in state.results %}<form method="post" class="card-form">{% csrf_token %}<input type="hidden" name="result_id" value="{{ entry.id }}"><button class="card {% if entry.selected %}active{% endif %}" name="action" value="select"><img src="{{ media }}{{ entry.image }}" alt="{{ entry.name }}"><strong>{{ entry.name }}</strong><small>{{ entry.label }}</small>{% if entry.metrics %}<small>MSE {{ entry.metrics.mse }} · PSNR {{ entry.metrics.psnr }} · SSIM {{ entry.metrics.ssim }}</small>{% endif %}</button></form>{% empty %}<p class="hint">Результатов пока нет.</p>{% endfor %}</div>
+    </section>
+  </div>
+</main>
+</body>
+</html>
+{% endlocalize %}
